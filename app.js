@@ -1,6 +1,6 @@
 /* PCI Survey — ASTM D6433 field app. Vanilla JS, offline-first (IndexedDB + service worker). */
 'use strict';
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.4.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -103,29 +103,34 @@ function render() {
 }
 
 /* ---------- Home ---------- */
+const blankDraft = p => p.draft && !p.sections.length && (!p.name || p.name === 'New project') && !p.number && !p.client && !p.location && !p.notes && !p.record;
 function vHome() {
+  const nb = S.projects.length; S.projects = S.projects.filter(p => !blankDraft(p)); if (S.projects.length !== nb) save(true);
   const ps = S.projects.slice().sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const lib = libStatus();
   return `<h1>Projects</h1>
   <div class="row"><button class="btn" data-act="newProject">+ New project</button>
+  <label class="btn sec" style="margin:0">New from Project Record<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-act-change="newFromRecord" style="display:none"></label>
   <label class="btn sec" style="margin:0">Import project<input type="file" accept=".json,.zip,.html,.htm,application/json,application/zip,text/html" data-act-change="importAny" style="display:none"></label>
   <a class="btn sec" href="#/curves">Deduct curves ${lib.badge}</a><a class="btn sec" href="#/settings">Settings &amp; backup</a><a class="btn sec" href="#/help">Help</a></div>
   ${!S.curveLib ? `<div class="note">No deduct-curve library is loaded. The app still records everything and calculates densities, <i>m</i>, TDV, <i>q</i> and PCI, but you must type in deduct values (DV) and corrected deduct values (CDV) read from the licensed standard. Load or build a library under <b>Deduct curves</b> to automate this.</div>` : ''}
   <div class="list">${ps.length ? ps.map(p => {
     const nS = p.sections.length, nU = p.sections.reduce((a, s) => a + s.units.length, 0);
-    return `<a class="item" href="#/p/${p.id}"><div class="grow"><b>${esc(p.name || 'Untitled project')}</b><div class="meta">${esc(p.number || '')} ${esc(p.client || '')} · ${nS} section(s) · ${nU} unit(s) · ${esc(p.date || '')}</div></div><span>›</span></a>`;
+    return `<a class="item" href="#/p/${p.id}"><div class="grow"><b>${esc(p.name || 'Untitled project')}</b>${p.draft ? ' <span class="small muted">(not saved)</span>' : ''}<div class="meta">${esc(p.number || '')} ${esc(p.client || '')} · ${nS} section(s) · ${nU} unit(s) · ${esc(p.date || '')}</div></div><span>›</span></a>`;
   }).join('') : '<p class="muted">No projects yet. Create one, or load the demo project (ASTM D6433-24 worked examples) from Settings.</p>'}</div>
   <p class="muted small">PCI Survey v${APP_VERSION} · data are stored on this device only. To move a project to another device, use <b>Export project file</b> on the project page (or email the report package .zip) and <b>Import project</b> here.</p>`;
 }
 
 /* ---------- Project ---------- */
 function vProject(p) {
-  return `<h1>${esc(p.name || 'Project')}</h1>
+  return `<h1>${esc(p.name || 'Project')}${p.draft ? ' <span class="small muted">(new, not saved)</span>' : ''}</h1>
+  ${p.draft ? `<div class="card" style="background:var(--pale,#eef3f9)"><b>Start from the EDI Project Record?</b><p class="small" style="margin:4px 0 8px">Load the project's Project Record spreadsheet (.xlsx) from EDI Project Records to fill the details below and bring in the contacts, site access and other project data. Or type the details and tap Save project.</p><div class="row"><label class="btn" style="margin:0">Load Project Record (.xlsx)<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-act-change="loadRecord" style="display:none"></label><button class="btn sec" data-act="saveDraft">Save project</button><button class="btn sec" data-act="cancelDraft">Cancel</button></div></div>` : ''}
   <div class="card"><div class="grid g2">
    ${field('project', 'name', 'Project name', p.name)}${field('project', 'number', 'Project no.', p.number)}
    ${field('project', 'client', 'Client', p.client)}${field('project', 'location', 'Site / address', p.location)}
    ${field('project', 'date', 'Survey date', p.date, 'date')}${field('project', 'inspectors', 'Inspector(s)', p.inspectors)}
   </div>${area('project', 'notes', 'Project notes / scope', p.notes)}</div>
+  ${p.draft ? '' : recordCard(p)}
   <div class="row"><button class="btn" data-act="newSection">+ Add section</button><a class="btn sec" href="#/r/${p.id}">Report &amp; export</a><button class="btn sec" data-act="exportProject">Export project file</button><button class="btn sec warn" data-act="delProject">Delete project</button></div>
   <h2>Sections</h2><div class="list">${p.sections.map(s => {
     const R = sectionResult(s);
@@ -499,7 +504,7 @@ function vReport(p) {
   return `<div class="row noprint"><button class="btn" data-act="print">Print / save PDF</button><button class="btn sec" data-act="zip">Export report package (.zip)</button><button class="btn sec" data-act="csv">Distress data (.csv)</button><button class="btn sec" data-act="tex">LaTeX report (.tex)</button><button class="btn sec" data-act="exportProject">Export project file (.pcis.json)</button></div>
   <p class="muted small noprint">On iPhone/iPad, <b>Print / save PDF</b> creates a report file and opens the share sheet: choose Print, or save it to Files and print from there. The report file, the report package (.zip) and the project file can all be imported on another device (Home → Import project).</p>
   <div class="report"><h1>Pavement Condition Index Survey — ${esc(p.name || '')}</h1>
-  <div class="kv"><b>Client</b><span>${esc(p.client || '')}</span><b>Project no.</b><span>${esc(p.number || '')}</span><b>Site</b><span>${esc(p.location || '')}</span><b>Survey date</b><span>${esc(p.date || '')}</span><b>Inspector(s)</b><span>${esc(p.inspectors || S.settings.inspector || '')}</span><b>Method</b><span>ASTM D6433-24 visual PCI survey</span></div>
+  <div class="kv"><b>Client</b><span>${esc(p.client || '')}</span><b>Project no.</b><span>${esc(p.number || '')}</span><b>Site</b><span>${esc(p.location || '')}</span>${tok(p, 'Owner.LegalName') ? `<b>Owner</b><span>${esc(tok(p, 'Owner.LegalName'))}</span>` : ''}${tok(p, 'Client.Contact') ? `<b>Attention</b><span>${esc(tok(p, 'Client.Contact'))}${tok(p, 'Client.Title') ? ', ' + esc(tok(p, 'Client.Title')) : ''}</span>` : ''}${tok(p, 'Project.ClientRef') ? `<b>Client ref.</b><span>${esc(tok(p, 'Project.ClientRef'))}</span>` : ''}<b>Survey date</b><span>${esc(p.date || '')}</span><b>Inspector(s)</b><span>${esc(p.inspectors || S.settings.inspector || '')}</span><b>Method</b><span>ASTM D6433-24 visual PCI survey</span></div>
   <h2>Summary</h2><p>${esc(narrative(p, D))}</p>
   <table><tr><th>Branch / section</th><th>Type</th><th>Use</th><th class="n">Area</th><th class="n">N</th><th class="n">Inspected (R+A)</th><th>Unit PCIs</th><th class="n">Section PCI</th><th>Rating</th></tr>
   ${D.map(x => `<tr><td>${esc(x.s.branch || '')} ${esc(x.s.name)}</td><td>${x.s.type}</td><td>${esc(x.s.use || '')}</td><td class="n">${fmt(x.s.area, 0)} ${U(x.s).area}</td><td class="n">${esc(x.s.N || '')}</td><td class="n">${x.R.sec.nR}+${x.R.sec.nA}</td><td class="small">${x.R.res.filter(r => r.pci != null).map(r => `${esc(r.unit.no)}${r.unit.kind === 'A' ? '(A)' : ''}: ${fmt(r.pci, 0)}`).join('; ')}</td><td class="n"><b>${fmt(x.R.sec.pciS, 0)}</b></td><td>${ratingChip(x.R.sec.pciS)}</td></tr>`).join('')}</table>
@@ -584,6 +589,142 @@ function cloneWithNewIds(p) {
   q.sections.forEach(s => { s.id = uid(); s.units.forEach(u => { u.id = uid(); }); });
   return q;
 }
+
+/* ============================ EDI Project Record (.xlsx) ============================
+   Reads the Project Record spreadsheet exported by EDI Project Records (EPR-DOC-07 §1):
+   sheet "Project Record", columns A ID, B Field, C [Token], E Value, F Status; each Value
+   cell is a workbook defined name equal to its token. A name is a token only if column C
+   of its row is "[name]". The hidden "_Record" sheet (if present) gives version and export
+   identity. Formula cells kept by the exporter (PM "Same as Client?", Contract.Name) are
+   evaluated here, since files written by the app carry no cached values. */
+const RECORD_SHEET = 'Project Record';
+const xmlDoc = u8 => new DOMParser().parseFromString(new TextDecoder().decode(u8), 'application/xml');
+const kids = (el, tag) => Array.from(el.getElementsByTagName(tag));
+function colRow(ref) { const m = /^\$?([A-Z]+)\$?(\d+)$/.exec(ref); return m ? [m[1], Number(m[2])] : null; }
+function readSheetCells(u8, shared) {
+  const out = {};
+  for (const c of kids(xmlDoc(u8), 'c')) {
+    const r = c.getAttribute('r'), t = c.getAttribute('t'); const v = kids(c, 'v')[0], f = kids(c, 'f')[0];
+    let val = null;
+    if (t === 's' && v) val = shared[Number(v.textContent)];
+    else if (t === 'inlineStr') val = kids(c, 't').map(x => x.textContent).join('');
+    else if (t === 'b' && v) val = v.textContent === '1';
+    else if (v && v.textContent !== '') val = t === 'str' || t === 'e' ? v.textContent : Number(v.textContent);
+    if (f && (val === '' || val == null)) val = null;
+    out[r] = {v: val, f: f ? f.textContent : null};
+  }
+  return out;
+}
+/* tiny evaluator for the exporter's formulas: IF(cond, a, b), $E$n refs, "text", = and <> */
+function evalFormula(src, get) {
+  let i = 0; const s = src.replace(/^=/, '');
+  const ws = () => { while (s[i] === ' ') i++; };
+  function atom() {
+    ws();
+    if (s.startsWith('IF(', i)) { i += 3; const c = cmp(); ws(); i++; const a = cmp(); ws(); i++; const b = cmp(); ws(); i++; return c ? a : b; }
+    if (s[i] === '"') { const j = s.indexOf('"', i + 1); const x = s.slice(i + 1, j); i = j + 1; return x; }
+    const m = /^\$?[A-Z]+\$?\d+/.exec(s.slice(i)); if (m) { i += m[0].length; const x = get(m[0].replace(/\$/g, '')); return x == null ? '' : x; }
+    throw new Error('formula not supported: ' + src);
+  }
+  function cmp() { const a = atom(); ws(); if (s.startsWith('<>', i)) { i += 2; return String(a) !== String(atom()); } if (s[i] === '=') { i++; return String(a) === String(atom()); } return a; }
+  return cmp();
+}
+const excelDate = n => { const d = new Date(Math.round((n - 25569) * 86400000)); return d.toLocaleDateString('en-US', {timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric'}); };
+async function readProjectRecord(u8) {
+  const files = await unzip(u8);
+  const wb = files['xl/workbook.xml']; if (!wb) throw new Error('not an Excel workbook');
+  const shared = files['xl/sharedStrings.xml'] ? kids(xmlDoc(files['xl/sharedStrings.xml']), 'si').map(si => kids(si, 't').map(x => x.textContent).join('')) : [];
+  const wbx = xmlDoc(wb), rels = xmlDoc(files['xl/_rels/workbook.xml.rels']);
+  const relMap = {}; kids(rels, 'Relationship').forEach(r => { relMap[r.getAttribute('Id')] = r.getAttribute('Target'); });
+  const sheetPath = {}; kids(wbx, 'sheet').forEach(sh => { const id = sh.getAttribute('r:id') || sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id'); let tg = relMap[id] || ''; tg = tg.replace(/^\/?xl\//, ''); sheetPath[sh.getAttribute('name')] = 'xl/' + tg; });
+  if (!sheetPath[RECORD_SHEET] || !files[sheetPath[RECORD_SHEET]]) throw new Error('this workbook has no "Project Record" sheet');
+  const cells = readSheetCells(files[sheetPath[RECORD_SHEET]], shared);
+  const get = ref => { const c = cells[ref]; if (!c) return null; if (c.v != null && c.v !== '') return c.v; if (c.f) { try { return evalFormula(c.f, get); } catch (e) { return null; } } return c.v; };
+  // section headings: rows where column A has text and column C is empty
+  const maxRow = Math.max(...Object.keys(cells).map(k => Number(k.replace(/^[A-Z]+/, ''))).filter(n => !isNaN(n)));
+  const sectionOf = {}; let sec = '';
+  for (let r = 1; r <= maxRow; r++) { const a = get('A' + r), c = get('C' + r); if (a && !c && !/^ID/.test(String(a)) && String(a) !== 'ID') sec = String(a); sectionOf[r] = sec; }
+  const tokens = {};
+  for (const dn of kids(wbx, 'definedName')) {
+    const name = dn.getAttribute('name'); const m = /^'?([^'!]+)'?!(\$[A-Z]+\$\d+)$/.exec(dn.textContent.trim());
+    if (!m || m[1] !== RECORD_SHEET) continue;
+    const [col, row] = colRow(m[2]); if (col !== 'E' || get('C' + row) !== `[${name}]`) continue;
+    let v = get('E' + row);
+    if (typeof v === 'number' && /Date|Completion|PreBid|Due/.test(name)) v = excelDate(v);
+    if (typeof v === 'string') v = v.trim();
+    tokens[name] = {v: v === '' ? null : v, s: get('F' + row) || '', label: get('B' + row) || name, section: sectionOf[row] || '', row};
+  }
+  if (!Object.keys(tokens).length) throw new Error('no Project Record tokens found in this workbook');
+  const meta = {};
+  if (sheetPath._Record && files[sheetPath._Record]) { const mc = readSheetCells(files[sheetPath._Record], shared); for (let r = 1; r < 40; r++) { const k = mc['A' + r], v = mc['B' + r]; if (k && k.v) meta[String(k.v)] = v ? v.v : ''; } delete meta.Signature; }
+  let template = ''; if (sheetPath['Start Here'] && files[sheetPath['Start Here']]) { const sc = readSheetCells(files[sheetPath['Start Here']], shared); for (const r of [1, 2, 3, 4, 5]) { const x = sc['B' + r]; if (x && /Template/i.test(String(x.v || ''))) template = String(x.v); } }
+  return {tokens, meta, template};
+}
+const tok = (p, name) => { const x = p && p.record && p.record.tokens[name]; return x && x.v != null && x.v !== '' && x.v !== 'Not yet assigned' ? String(x.v) : ''; };
+/* header fields of the PCI project that come from the Project Record (the Records app is the master) */
+function recordHeader(r) {
+  const T = name => { const x = r.tokens[name]; return x && x.v != null && x.v !== 'Not yet assigned' ? String(x.v) : ''; };
+  return {
+    name: T('Project.ShortTitle') || [T('Site.BuildingName'), T('Project.Title')].filter(Boolean).join(' – '),
+    number: T('Project.Number') || T('Proposal.Number'),
+    client: T('Client.Name'),
+    location: [T('Site.BuildingName'), T('Site.Street'), T('Site.CityStateZip')].filter(Boolean).join(', ')
+  };
+}
+async function loadProjectRecord(file, target) {
+  const rec = await readProjectRecord(new Uint8Array(await file.arrayBuffer()));
+  rec.fileName = file.name; rec.loadedAt = Date.now();
+  const H = recordHeader(rec);
+  let p = target;
+  if (!p) {
+    const same = H.number && S.projects.find(x => x.number === H.number);
+    if (same) {
+      const pick = await choose('Project already on this device', `<p><b>${esc(same.name)}</b> (${esc(same.number)}) is already here.</p><p class="small">Refresh updates its Project Record data and header fields and keeps the survey. New creates a separate project.</p>`, [['refresh', 'Refresh this project', ''], ['new', 'Create new project', 'sec'], ['cancel', 'Cancel', 'sec']]);
+      if (pick === 'cancel' || !pick) return; if (pick === 'refresh') p = same;
+    }
+  }
+  const isNew = !p;
+  if (isNew) { p = {id: uid(), name: '', number: '', client: '', location: '', date: today(), inspectors: S.settings.inspector || '', notes: '', sections: [], updated: Date.now()}; S.projects.push(p); }
+  const changes = [];
+  [['name', 'Project name'], ['number', 'Project no.'], ['client', 'Client'], ['location', 'Site / address']].forEach(([k, lab]) => { if (H[k] && H[k] !== p[k]) { if (!isNew) changes.push(`${lab}: “${p[k] || '—'}” → “${H[k]}”`); p[k] = H[k]; } });
+  if (!p.notes && rec.tokens['Project.Description'] && rec.tokens['Project.Description'].v) p.notes = String(rec.tokens['Project.Description'].v);
+  delete p.draft;
+  const before = p.record; p.record = rec; p.updated = Date.now(); save(true); go(`#/p/${p.id}`); render();
+  const env = String(rec.meta.Environment || '').toUpperCase();
+  const ver = rec.meta.Version ? 'v' + rec.meta.Version : '(no version: not exported by Project Records)';
+  await choose(isNew ? 'Project created from the Project Record' : 'Project Record refreshed', `${env === 'STAGING' ? '<div class="note" style="border-color:#9b2c2c;color:#9b2c2c"><b>TEST — STAGING SITE.</b> This file came from the staging Records app. Use it for testing only.</div>' : ''}
+    <p class="small">${esc(rec.fileName)}<br>Project Record ${esc(ver)}${rec.meta['Exported at'] ? ', exported ' + esc(rec.meta['Exported at']) : ''}${rec.meta['Exported by'] ? ' by ' + esc(rec.meta['Exported by']) : ''}</p>
+    <p class="small">${Object.keys(rec.tokens).length} tokens loaded${before ? ` (previously ${before.meta && before.meta.Version ? 'v' + esc(before.meta.Version) : 'an earlier file'})` : ''}.</p>
+    ${changes.length ? `<p><b>Header fields updated</b></p><ul class="small">${changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+    <p class="small muted">The Records app is the master. Correct project data there, export a new version, and refresh here.</p>`, [['ok', 'OK', '']]);
+}
+const PRESURVEY = [
+  ['Project', [['Project.Number', 'EDI project no.'], ['Proposal.Number', 'Proposal no.'], ['Project.Title', 'Title'], ['Project.Phase', 'Phase'], ['EDI.Engineer', 'EDI engineer'], ['Project.ClientRef', 'Client ref. / PO']]],
+  ['Site', [['Site.BuildingName', 'Building / property'], ['Site.Street', 'Street'], ['Site.CityStateZip', 'City, state ZIP'], ['Site.County', 'County'], ['Terms.OperatingHours', 'Operating hours']]],
+  ['Client', [['Client.Name', 'Company'], ['Client.Contact', 'Contact'], ['Client.Title', 'Title'], ['Client.Phone', 'Phone'], ['Client.Email', 'E-mail']]],
+  ['Owner', [['Owner.LegalName', 'Legal name'], ['Owner.Street', 'Street'], ['Owner.CityStateZip', 'City, state ZIP']]],
+  ['Property contact', [['PM.Company', 'Company'], ['PM.Contact', 'Contact'], ['PM.Title', 'Title'], ['PM.Phone', 'Office'], ['PM.Mobile', 'Mobile'], ['PM.Email', 'E-mail'], ['PM.Emergency', 'After-hours contact'], ['PM.EmergencyPhone', 'After-hours phone']]],
+  ['Site access and rules', [['Resp.AccessOpen', 'Access / opening'], ['Resp.CheckIn', 'Check-in'], ['Resp.Parking', 'Parking'], ['Resp.SafetyOrientation', 'Safety orientation'], ['Resp.SiteRules', 'Site rules'], ['Resp.Photography', 'Photography'], ['Resp.AfterHoursWork', 'After-hours work'], ['Resp.NoiseRestrictions', 'Noise'], ['Resp.RoofAccess', 'Roof access'], ['Resp.Firearms', 'Firearms']]]
+];
+function recordCard(p) {
+  const r = p.record;
+  const loadBtn = `<label class="btn ${r ? 'sec' : ''}" style="margin:0">${r ? 'Refresh Project Record (.xlsx)' : 'Load Project Record (.xlsx)'}<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-act-change="loadRecord" style="display:none"></label>`;
+  if (!r) return `<div class="card"><h3>EDI Project Record</h3><p class="small muted">Load the project's Project Record spreadsheet, exported from EDI Project Records, to fill the project details and carry the pre-survey information (contacts, access, site rules) into the survey and the report.</p>${loadBtn}</div>`;
+  const env = String(r.meta.Environment || '').toUpperCase();
+  const groups = PRESURVEY.map(([g, rows]) => { const have = rows.filter(([k]) => tok(p, k)); return have.length ? `<h4 style="margin:10px 0 4px">${esc(g)}</h4><div class="kv">${have.map(([k, lab]) => { const v = tok(p, k); const link = /Email$/.test(k) ? `<a href="mailto:${esc(v)}">${esc(v)}</a>` : /Phone$|Mobile$/.test(k) ? `<a href="tel:${esc(v.replace(/[^\d+]/g, ''))}">${esc(v)}</a>` : esc(v); return `<b>${esc(lab)}</b><span>${link}${r.tokens[k].s && r.tokens[k].s !== 'Confirmed' ? ` <span class="small muted">(${esc(r.tokens[k].s)})</span>` : ''}</span>`; }).join('')}</div>` : ''; }).join('');
+  const folder = tok(p, 'Project.Folder');
+  const all = Object.entries(r.tokens).sort((a, b) => a[1].row - b[1].row);
+  let lastSec = null;
+  const allRows = all.map(([k, x]) => { const head = x.section !== lastSec ? `<tr><th colspan="3">${esc(x.section)}</th></tr>` : ''; lastSec = x.section; return head + `<tr><td class="small">${esc(x.label)}<div class="muted">[${esc(k)}]</div></td><td>${esc(x.v == null ? '' : x.v)}</td><td class="small">${esc(x.s || '')}</td></tr>`; }).join('');
+  return `<div class="card"><h3>EDI Project Record ${r.meta.Version ? 'v' + esc(r.meta.Version) : ''}</h3>
+   ${env === 'STAGING' ? '<div class="note" style="border-color:#9b2c2c;color:#9b2c2c"><b>TEST — STAGING SITE.</b> Test data only.</div>' : ''}
+   <p class="small muted">${esc(r.fileName || '')}${r.meta['Exported at'] ? ' · exported ' + esc(r.meta['Exported at']) : ''} · loaded ${esc(new Date(r.loadedAt).toLocaleString())}. Correct data in the Records app, then refresh.</p>
+   ${groups}
+   ${folder ? `<div class="note small">Save this survey's project files and report packages in <b>${esc(folder)}\\PCI Survey</b>.</div>` : ''}
+   <details style="margin-top:8px"><summary class="small">All ${all.length} tokens</summary><div class="tw"><table><tr><th>Field / token</th><th>Value</th><th>Status</th></tr>${allRows}</table></div></details>
+   <div class="row" style="margin-top:8px">${loadBtn}</div></div>`;
+}
+
 /* small promise-based dialog: buttons = [[value, label, extraClass]] */
 function choose(title, html, buttons) {
   return new Promise(res => {
@@ -604,6 +745,7 @@ function mergeProject(local, inc, photoBlobs) {
   const sum = {added: [], updated: [], kept: [], conflicts: [], sections: [], same: 0};
   const lab = (s, u) => `${s.branch ? s.branch + ' ' : ''}${s.name} unit ${u.no}${u.kind === 'A' ? ' (A)' : ''}`;
   ['client', 'location', 'number', 'inspectors', 'notes'].forEach(f => { if (!local[f] && inc[f]) local[f] = inc[f]; });
+  if (inc.record && (!local.record || (inc.record.loadedAt || 0) > (local.record.loadedAt || 0))) { local.record = inc.record; sum.record = 'Project Record taken from the imported file (newer)'; }
   const ins = new Set(String(local.inspectors || '').split(/\s*[,;&]\s*/).filter(Boolean));
   inc.sections.forEach(si => {
     let sl = local.sections.find(x => x.id === si.id) || local.sections.find(x => (x.branch || '') === (si.branch || '') && x.name === si.name && x.type === si.type);
@@ -629,7 +771,7 @@ function mergeProject(local, inc, photoBlobs) {
 }
 function mergeReport(s) {
   const li = (h, a) => a.length ? `<p><b>${h} (${a.length})</b></p><ul class="small">${a.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
-  return `${li('Units added', s.added)}${li('Units updated from the imported file', s.updated.filter(x => !s.conflicts.some(c => c.startsWith(x + ':'))))}${li('Sections added', s.sections)}${s.conflicts.length ? `<div class="note">${li('Check these units: both devices had survey data', s.conflicts)}<p class="small">Open each one and confirm the entries. The other copy is still in the imported file if you need it.</p></div>` : ''}<p class="small muted">${s.same} unit(s) were identical on both devices.</p>`;
+  return `${li('Units added', s.added)}${li('Units updated from the imported file', s.updated.filter(x => !s.conflicts.some(c => c.startsWith(x + ':'))))}${li('Sections added', s.sections)}${s.conflicts.length ? `<div class="note">${li('Check these units: both devices had survey data', s.conflicts)}<p class="small">Open each one and confirm the entries. The other copy is still in the imported file if you need it.</p></div>` : ''}${s.record ? `<p class="small">${esc(s.record)}.</p>` : ''}<p class="small muted">${s.same} unit(s) were identical on both devices.</p>`;
 }
 /* Import a project from: a project file (.pcis.json), a report package (.zip, from any version), or a full backup (.json) */
 async function importAny(file) {
@@ -695,7 +837,7 @@ const tx = s => String(s == null ? '' : s).replace(/\\/g, '\\textbackslash{}').r
 function texFor(p, withPhotos) {
   const D = projectData(p);
   let t = `% PCI Survey report — generated by PCI Survey v${APP_VERSION} on ${today()}\n\\documentclass[10pt,letterpaper]{article}\n\\usepackage[margin=0.9in]{geometry}\n\\usepackage[T1]{fontenc}\\usepackage{lmodern}\\usepackage{booktabs,longtable,graphicx,xcolor,array}\n\\usepackage[hidelinks]{hyperref}\n\\setlength{\\parindent}{0pt}\\setlength{\\parskip}{5pt}\n\\begin{document}\n`;
-  t += `{\\Large\\bfseries Pavement Condition Index Survey --- ${tx(p.name)}}\\\\[4pt]\n${tx(S.settings.firm)}\\\\[8pt]\n\\begin{tabular}{@{}ll@{}}Client & ${tx(p.client)}\\\\ Project no. & ${tx(p.number)}\\\\ Site & ${tx(p.location)}\\\\ Survey date & ${tx(p.date)}\\\\ Inspector(s) & ${tx(p.inspectors || S.settings.inspector)}\\\\ Method & ASTM D6433-24 visual PCI survey\\end{tabular}\n\n`;
+  t += `{\\Large\\bfseries Pavement Condition Index Survey --- ${tx(p.name)}}\\\\[4pt]\n${tx(S.settings.firm)}\\\\[8pt]\n\\begin{tabular}{@{}ll@{}}Client & ${tx(p.client)}\\\\ Project no. & ${tx(p.number)}\\\\ Site & ${tx(p.location)}\\\\ ${tok(p, 'Owner.LegalName') ? `Owner & ${tx(tok(p, 'Owner.LegalName'))}\\\\ ` : ''}${tok(p, 'Client.Contact') ? `Attention & ${tx(tok(p, 'Client.Contact') + (tok(p, 'Client.Title') ? ', ' + tok(p, 'Client.Title') : ''))}\\\\ ` : ''}Survey date & ${tx(p.date)}\\\\ Inspector(s) & ${tx(p.inspectors || S.settings.inspector)}\\\\ Method & ASTM D6433-24 visual PCI survey\\end{tabular}\n\n`;
   t += `\\section*{Summary}\n${tx(narrative(p, D))}\n\n\\begin{longtable}{@{}llrrrl@{}}\\toprule Section & Type & Area & N & Inspected (R+A) & Section PCI / rating\\\\\\midrule\\endhead\n`;
   D.forEach(x => { const b = PCI.rating(x.R.sec.pciS); t += `${tx((x.s.branch || '') + ' ' + x.s.name)} & ${x.s.type} & ${fmt(x.s.area, 0)} ${UNIT[x.s.system || 'US'].areaTxt.replace('2', '$^2$')} & ${tx(x.s.N)} & ${x.R.sec.nR}+${x.R.sec.nA} & ${fmt(x.R.sec.pciS, 0)} ${b ? b.label : ''}\\\\\n`; });
   t += `\\bottomrule\\end{longtable}\nRating scale (ASTM D6433-24 Fig.~1): 85--100 Good; 70--85 Satisfactory; 55--70 Fair; 40--55 Poor; 25--40 Very Poor; 10--25 Serious; 0--10 Failed.\n\n`;
@@ -744,10 +886,16 @@ async function zipPackage(p) {
   files.push({name: 'report.tex', data: enc.encode(texFor(p, true))});
   files.push({name: 'distress_data.csv', data: enc.encode(csvFor(p))});
   files.push({name: 'project.json', data: enc.encode(JSON.stringify(p, null, 1))});
+  if (p.record) {
+    const rows = Object.entries(p.record.tokens).sort((a, b) => a[1].row - b[1].row);
+    const q = v => { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    files.push({name: 'project_record_tokens.csv', data: enc.encode([['token', 'field', 'value', 'status', 'section'].join(',')].concat(rows.map(([k, x]) => [k, x.label, x.v, x.s, x.section].map(q).join(','))).join('\r\n'))});
+    files.push({name: 'project_record_tokens.tex', data: enc.encode('% EDI Project Record tokens' + (p.record.meta.Version ? ' (v' + p.record.meta.Version + ')' : '') + '. Use \\PR{Project.Number} etc.\n\\providecommand{\\PR}[1]{\\csname PR@#1\\endcsname}\n' + rows.map(([k, x]) => `\\expandafter\\def\\csname PR@${k}\\endcsname{${tx(x.v == null ? '' : x.v)}}`).join('\n') + '\n')});
+  }
   for (const s of p.sections) for (const u of s.units) for (let k = 0; k < (u.photos || []).length; k++) {
     const ph = u.photos[k]; const b = await idb.get('photos', ph.id); if (b) files.push({name: 'photos/' + photoName(s, u, ph, k), data: await blobToU8(b)});
   }
-  files.push({name: 'README.txt', data: enc.encode('PCI Survey report package\r\nreport.tex  - compile with pdflatex (photos/ folder alongside)\r\ndistress_data.csv - one row per distress/severity per unit\r\nproject.json - project data. To open this project on another device, import this whole .zip in PCI Survey: Home > Import project\r\n')});
+  files.push({name: 'README.txt', data: enc.encode('PCI Survey report package\r\nreport.tex  - compile with pdflatex (photos/ folder alongside)\r\ndistress_data.csv - one row per distress/severity per unit\r\nproject_record_tokens.csv/.tex - EDI Project Record tokens, if loaded (\\PR{Token} in LaTeX)\r\nproject.json - project data. To open this project on another device, import this whole .zip in PCI Survey: Home > Import project\r\n')});
   await deliver(slug(p.name) + '_PCI_report.zip', zip(files), 'application/zip');
 }
 async function fullBackup() {
@@ -819,6 +967,7 @@ document.addEventListener('change', async e => {
   else if (a === 'phCap' || a === 'phCode' || a === 'phSev') { const ph = c.u.photos.find(x => x.id === el.dataset.id); ph[{phCap: 'caption', phCode: 'code', phSev: 'sev'}[a]] = el.value; touch(); }
   else if (a === 'supp') { c.u.supp = c.u.supp || {}; c.u.supp[el.dataset.k] = el.checked; touch(); }
   else if (a === 'importLib') { try { const j = JSON.parse(await el.files[0].text()); if (!j.AC && !j.PCC) throw new Error('missing AC/PCC sets'); S.curveLib = j; save(true); toast('Curve library loaded'); render(); } catch (err) { alert('Could not read library: ' + err.message); } }
+  else if (a === 'newFromRecord' || a === 'loadRecord') { try { await loadProjectRecord(el.files[0], a === 'loadRecord' ? c.p : null); } catch (err) { alert('Could not read the Project Record: ' + err.message); } el.value = ''; }
   else if (a === 'importAny') { try { await importAny(el.files[0]); } catch (err) { alert('Import failed: ' + err.message); } el.value = ''; }
   else if (a === 'restore') { try { await restore(el.files[0]); } catch (err) { alert('Restore failed: ' + err.message); } }
   else if (a === 'cvSet') { UI.curveSel.set = el.value; render(); }
@@ -833,9 +982,13 @@ document.addEventListener('click', async e => {
   const a = el.dataset.act; const c = ctx();
   if (el.tagName === 'A' && el.getAttribute('href') === '#') e.preventDefault();
   switch (a) {
-    case 'newProject': { const p = {id: uid(), name: 'New project', number: '', client: '', location: '', date: today(), inspectors: S.settings.inspector || '', notes: '', sections: [], updated: Date.now()}; S.projects.push(p); save(); go(`#/p/${p.id}`); break; }
+    case 'saveDraft': delete c.p.draft; c.p.updated = Date.now(); save(true); render(); toast('Project saved'); break;
+    case 'cancelDraft': { const pick = await choose('Discard this new project?', '<p>Nothing has been saved. The project and anything entered on it will be removed.</p>', [['discard', 'Discard', 'warn'], ['keep', 'Keep editing', 'sec']]); if (pick === 'discard') { S.projects = S.projects.filter(x => x !== c.p); save(true); go('#/'); render(); toast('New project discarded'); } break; }
+    case 'newProject': { const p = {draft: true, id: uid(), name: 'New project', number: '', client: '', location: '', date: today(), inspectors: S.settings.inspector || '', notes: '', sections: [], updated: Date.now()}; S.projects.push(p); save(); go(`#/p/${p.id}`); break; }
     case 'delProject': if (confirm('Delete this project and its photos?')) { for (const s of c.p.sections) for (const u of s.units) for (const ph of (u.photos || [])) await idb.del('photos', ph.id); S.projects = S.projects.filter(x => x !== c.p); save(); go('#/'); } break;
-    case 'newSection': { const ty = S.settings.type || 'AC', sy = S.settings.units || 'US'; const s = {id: uid(), branch: '', name: 'S' + (c.p.sections.length + 1), type: ty, system: sy, area: '', N: '', unitSize: sy === 'US' ? 2500 : 225, slabLen: '', slabWid: '', sDev: ty === 'AC' ? 10 : 15, e: 5, use: '', notes: '', units: []}; c.p.sections.push(s); touch(); go(`#/s/${c.p.id}/${s.id}`); break; }
+    case 'newSection': { delete c.p.draft; }
+    // falls through
+    case 'newSectionGo': { const ty = S.settings.type || 'AC', sy = S.settings.units || 'US'; const s = {id: uid(), branch: '', name: 'S' + (c.p.sections.length + 1), type: ty, system: sy, area: '', N: '', unitSize: sy === 'US' ? 2500 : 225, slabLen: '', slabWid: '', sDev: ty === 'AC' ? 10 : 15, e: 5, use: '', notes: '', units: []}; c.p.sections.push(s); touch(); go(`#/s/${c.p.id}/${s.id}`); break; }
     case 'delSection': if (confirm('Delete this section?')) { c.p.sections = c.p.sections.filter(x => x !== c.s); touch(); go(`#/p/${c.p.id}`); } break;
     case 'genUnits': case 'genAll': {
       const s = c.s; const N = Number(s.N);
