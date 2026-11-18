@@ -69,3 +69,4 @@ svg.curve{width:100%;height:180px;background:#fff;border:1px solid var(--line);b
 td input{min-width:64px}
 .dl{flex-wrap:wrap}
 .slabgrid{max-width:560px}
+label.btn{text-transform:none;letter-spacing:normal;font-size:15px}

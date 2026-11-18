@@ -1,6 +1,6 @@
 /* PCI Survey — ASTM D6433 field app. Vanilla JS, offline-first (IndexedDB + service worker). */
 'use strict';
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.3.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -108,13 +108,14 @@ function vHome() {
   const lib = libStatus();
   return `<h1>Projects</h1>
   <div class="row"><button class="btn" data-act="newProject">+ New project</button>
+  <label class="btn sec" style="margin:0">Import project<input type="file" accept=".json,.zip,application/json,application/zip" data-act-change="importAny" style="display:none"></label>
   <a class="btn sec" href="#/curves">Deduct curves ${lib.badge}</a><a class="btn sec" href="#/settings">Settings &amp; backup</a><a class="btn sec" href="#/help">Help</a></div>
   ${!S.curveLib ? `<div class="note">No deduct-curve library is loaded. The app still records everything and calculates densities, <i>m</i>, TDV, <i>q</i> and PCI, but you must type in deduct values (DV) and corrected deduct values (CDV) read from the licensed standard. Load or build a library under <b>Deduct curves</b> to automate this.</div>` : ''}
   <div class="list">${ps.length ? ps.map(p => {
     const nS = p.sections.length, nU = p.sections.reduce((a, s) => a + s.units.length, 0);
     return `<a class="item" href="#/p/${p.id}"><div class="grow"><b>${esc(p.name || 'Untitled project')}</b><div class="meta">${esc(p.number || '')} ${esc(p.client || '')} · ${nS} section(s) · ${nU} unit(s) · ${esc(p.date || '')}</div></div><span>›</span></a>`;
   }).join('') : '<p class="muted">No projects yet. Create one, or load the demo project (ASTM D6433-24 worked examples) from Settings.</p>'}</div>
-  <p class="muted small">PCI Survey v${APP_VERSION} · data are stored on this device only. Export backups regularly (Settings).</p>`;
+  <p class="muted small">PCI Survey v${APP_VERSION} · data are stored on this device only. To move a project to another device, use <b>Export project file</b> on the project page (or email the report package .zip) and <b>Import project</b> here.</p>`;
 }
 
 /* ---------- Project ---------- */
@@ -125,7 +126,7 @@ function vProject(p) {
    ${field('project', 'client', 'Client', p.client)}${field('project', 'location', 'Site / address', p.location)}
    ${field('project', 'date', 'Survey date', p.date, 'date')}${field('project', 'inspectors', 'Inspector(s)', p.inspectors)}
   </div>${area('project', 'notes', 'Project notes / scope', p.notes)}</div>
-  <div class="row"><button class="btn" data-act="newSection">+ Add section</button><a class="btn sec" href="#/r/${p.id}">Report &amp; export</a><button class="btn sec warn" data-act="delProject">Delete project</button></div>
+  <div class="row"><button class="btn" data-act="newSection">+ Add section</button><a class="btn sec" href="#/r/${p.id}">Report &amp; export</a><button class="btn sec" data-act="exportProject">Export project file</button><button class="btn sec warn" data-act="delProject">Delete project</button></div>
   <h2>Sections</h2><div class="list">${p.sections.map(s => {
     const R = sectionResult(s);
     return `<a class="item" href="#/s/${p.id}/${s.id}"><div class="grow"><b>${esc(s.branch || '')} — ${esc(s.name || 'Section')}</b>
@@ -133,7 +134,7 @@ function vProject(p) {
   }).join('') || '<p class="muted">No sections yet.</p>'}</div>`;
 }
 function field(obj, k, lab, v, type = 'text', extra = '') {
-  return `<div><label>${lab}</label><input type="${type}" data-obj="${obj}" data-k="${k}" value="${esc(v == null ? '' : v)}" ${extra}></div>`;
+  return `<div><label>${lab}</label><input type="${type === 'number' ? 'text' : type}" data-obj="${obj}" data-k="${k}" value="${esc(v == null ? '' : v)}" ${extra}></div>`;
 }
 function area(obj, k, lab, v) { return `<div style="margin-top:8px"><label>${lab}</label><textarea data-obj="${obj}" data-k="${k}">${esc(v || '')}</textarea></div>`; }
 function sel(obj, k, lab, v, opts) {
@@ -157,9 +158,9 @@ function vSection(p, s) {
    ${sel('section', 'type', 'Pavement type', s.type, [['AC', 'AC — asphalt'], ['PCC', 'PCC — jointed concrete']])}
    ${sel('section', 'system', 'Unit system', s.system, [['US', 'US customary (ft, ft²)'], ['SI', 'SI (m, m²)']])}
    ${sel('section', 'use', 'Use', s.use, [['', '—'], ['Drive aisle', 'Drive aisle'], ['Parking stalls', 'Parking stalls'], ['Fire lane', 'Fire lane'], ['Loading / truck route', 'Loading / truck route'], ['Roadway', 'Roadway'], ['Dumpster pad', 'Dumpster pad'], ['Other', 'Other']])}
-   ${field('section', 'area', `Section area, A (${U.area})`, s.area, 'number', 'inputmode="decimal"')}
+   ${field('section', 'area', `Section area, A (${U.area})`, s.area, 'number', 'inputmode="text" autocomplete="off"')}
    ${field('section', 'N', 'Total sample units, N', s.N, 'number', 'inputmode="numeric"')}
-   ${s.type === 'AC' ? field('section', 'unitSize', `Nominal unit area (${U.area})`, s.unitSize, 'number', 'inputmode="decimal"')
+   ${s.type === 'AC' ? field('section', 'unitSize', `Nominal unit area (${U.area})`, s.unitSize, 'number', 'inputmode="text" autocomplete="off"')
      : field('section', 'slabLen', `Slab length (${U.len})`, s.slabLen, 'number', 'inputmode="decimal"') + field('section', 'slabWid', `Slab width (${U.len})`, s.slabWid, 'number', 'inputmode="decimal"')}
    ${field('section', 'constructed', 'Constructed / last M&R', s.constructed)}
   </div>
@@ -180,7 +181,7 @@ function vSection(p, s) {
     const r = R.res.find(x => x.unit === u);
     const hasData = (u.entries || []).length || Object.keys(u.slabMarks || {}).length || (u.jointSeal && u.jointSeal !== 'none');
     const st = u.done ? (r.r.pci != null ? '✓ Surveyed' : (r.r.missingDV.length ? 'Surveyed — DV needed' : 'Surveyed — CDV needed')) : (hasData ? 'In progress' : 'Not started');
-    return `<tr><td><a href="#/u/${p.id}/${s.id}/${u.id}"><b>${esc(u.no)}</b></a></td><td>${u.kind === 'A' ? 'Additional' : 'Random'}</td><td>${st}</td><td class="n">${s.type === 'AC' ? fmt(u.area, 0) : esc(u.slabs)}</td><td class="n">${ratingChip(r.pci)}</td><td><a class="btn sm" href="#/u/${p.id}/${s.id}/${u.id}">Survey</a></td></tr>`;
+    return `<tr><td><a href="#/u/${p.id}/${s.id}/${u.id}"><b>${esc(u.no)}</b></a></td><td>${u.kind === 'A' ? 'Additional' : 'Random'}</td><td>${st}${u.inspector && (u.done || hasData) ? `<div class="small muted">${esc(u.inspector)}</div>` : ''}</td><td class="n">${s.type === 'AC' ? fmt(u.area, 0) : esc(u.slabs)}</td><td class="n">${ratingChip(r.pci)}</td><td><a class="btn sm" href="#/u/${p.id}/${s.id}/${u.id}">Survey</a></td></tr>`;
   }).join('') || '<tr><td colspan="6" class="muted">No sample units. Generate or add units above.</td></tr>'}</table></div>
 
   <div class="card"><h3>Section PCI (§11, Eq. 5–7)</h3>
@@ -210,7 +211,7 @@ function vUnit(p, s, u) {
   return `<h1>Unit ${esc(u.no)} <span class="muted" style="font-size:14px">${s.type} · ${u.kind === 'A' ? 'Additional' : 'Random'}</span></h1>
   <div class="card"><div class="grid g3">
    ${field('unit', 'no', 'Unit no.', u.no)}${sel('unit', 'kind', 'Selection', u.kind, [['R', 'Random'], ['A', 'Additional (§2.1.1)']])}
-   ${s.type === 'AC' ? field('unit', 'area', `Unit area (${U.area})`, u.area, 'number', 'inputmode="decimal"')
+   ${s.type === 'AC' ? field('unit', 'area', `Unit area (${U.area})`, u.area, 'number', 'inputmode="text" autocomplete="off"')
      : field('unit', 'slabs', 'No. of slabs', u.slabs, 'number', 'inputmode="numeric"') + field('unit', 'cols', 'Slabs across (lanes)', u.cols, 'number', 'inputmode="numeric"')}
    ${field('unit', 'date', 'Date', u.date, 'date')}${field('unit', 'inspector', 'Inspector', u.inspector)}
    <div><label>Location</label><button class="btn sec sm" data-act="gps">📍 ${u.gps ? `${u.gps.lat.toFixed(5)}, ${u.gps.lon.toFixed(5)} (±${Math.round(u.gps.acc)} m)` : 'Record GPS'}</button></div>
@@ -224,6 +225,8 @@ function navUnits(p, s, u) {
   return `${k > 0 ? `<a class="btn sec sm" href="#/u/${p.id}/${s.id}/${L[k - 1].id}">‹ Unit ${esc(L[k - 1].no)}</a>` : ''}${k < L.length - 1 ? `<a class="btn sec sm" href="#/u/${p.id}/${s.id}/${L[k + 1].id}">Unit ${esc(L[k + 1].no)} ›</a>` : ''}`;
 }
 
+/* arithmetic keys for phone decimal keypads (no + or * on iOS) */
+function keyBtns(id) { return ['+', '×'].map(k => `<button type="button" class="btn sec sm" style="min-width:40px;font-size:18px" data-act="key" data-target="${id}" data-k="${k}">${k}</button>`).join(''); }
 /* AC distress panel */
 function acPanel(s, u) {
   const d = UI.acCode ? dist('AC', UI.acCode) : null;
@@ -236,7 +239,7 @@ function acPanel(s, u) {
    ${d ? `<div class="help"><b>${d.code}. ${esc(d.name)}</b> (${d.ref}) — measure in <b>${qtyUnit(s, d)}</b>. ${esc(d.tip)}</div>
    <div class="row"><div class="seg">${['L', 'M', 'H', 'N'].filter(x => d.sev.includes(x)).map(x => `<button data-act="acSev" data-sev="${x}" class="${UI.acSev === x ? 'on' : ''}">${x === 'N' ? 'Present' : x}</button>`).join('')}</div>
    ${d.helper ? `<button class="btn sec sm" data-act="helper" data-h="${d.helper}">Severity helper</button>` : ''}${d.ride ? `<button class="btn sec sm" data-act="helper" data-h="ride">Ride-quality guide</button>` : ''}</div>
-   <div class="row" style="margin-top:8px"><div class="grow"><label>Quantity (${qtyUnit(s, d)}) — e.g. <code>5+4+4</code> or <code>12*3</code></label><input id="acQty" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+   <div class="row" style="margin-top:8px"><div class="grow"><label>Quantity (${qtyUnit(s, d)}) — e.g. <code>5+4+4</code> or <code>12*3</code></label><div class="row" style="flex-wrap:nowrap"><input id="acQty" class="grow" inputmode="decimal" autocomplete="off" placeholder="0">${keyBtns('acQty')}</div></div>
    <div class="grow"><label>Note (optional)</label><input id="acNote" placeholder="location / remark"></div></div>
    <div class="row" style="margin-top:8px"><button class="btn" data-act="addAC">Add entry</button><span class="muted small">Entries of the same type and severity are summed (§9.1).</span></div>` : ''}
   </div>
@@ -332,7 +335,7 @@ function repairPanel(s, u) {
   const rp = u.repairs || [];
   return `<div class="card"><h3>Repair quantity log</h3><p class="muted small">Measured repair quantities for the report and cost opinion. PCI densities are not repair quantities.</p>
   <div class="grid g3"><div><label>Item</label><select id="rpItem">${REPAIR_ITEMS.map((r, k) => `<option value="${k}">${esc(r.item)} (${r.unit || '—'})</option>`).join('')}</select></div>
-  <div><label>Quantity (e.g. 4*6+3*3)</label><input id="rpQty" inputmode="decimal"></div><div><label>Note / location</label><input id="rpNote"></div></div>
+  <div><label>Quantity (e.g. 4*6+3*3)</label><div class="row" style="flex-wrap:nowrap"><input id="rpQty" class="grow" inputmode="decimal" autocomplete="off">${keyBtns('rpQty')}</div></div><div><label>Note / location</label><input id="rpNote"></div></div>
   <div class="row" style="margin-top:8px"><button class="btn" data-act="addRepair">Add</button></div></div>
   <div class="tw"><table><tr><th>Item</th><th class="n">Qty</th><th>Unit</th><th>Note</th><th></th></tr>
   ${rp.map(r => `<tr><td>${esc(r.item)}</td><td class="n">${fmt(r.qty, 1)}</td><td>${esc(r.unit)}</td><td class="small">${esc(r.note || '')}</td><td><button class="btn sec sm" data-act="delRepair" data-id="${r.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">None.</td></tr>'}</table></div>`;
@@ -447,7 +450,7 @@ function vSettings() {
   return `<h1>Settings &amp; backup</h1>
   <div class="card"><div class="grid g2">${field('settings', 'inspector', 'Default inspector', S.settings.inspector)}${field('settings', 'firm', 'Firm (report header)', S.settings.firm)}
   ${sel('settings', 'units', 'Default unit system', S.settings.units, [['US', 'US customary'], ['SI', 'SI']])}${sel('settings', 'type', 'Default pavement type', S.settings.type, [['AC', 'AC'], ['PCC', 'PCC']])}</div></div>
-  <div class="card"><h3>Backup &amp; restore</h3><p class="muted small">Data live only in this browser on this device. A backup file contains all projects, photos and the curve library. Restore merges projects by ID.</p>
+  <div class="card"><h3>Backup &amp; restore</h3><p class="muted small">Data live only in this browser on this device. A backup file contains all projects, photos and the curve library. Restore merges projects by ID. To move <i>one</i> project between devices (iPhone ↔ desktop), use Export project file on the project page and Import project on the Home screen; a report package .zip also imports.</p>
   <div class="row"><button class="btn" data-act="backup">Download full backup (.json)</button><label class="btn sec" style="margin:0">Restore from backup<input type="file" accept=".json,application/json" data-act-change="restore" style="display:none"></label></div>
   <p class="muted small" id="usage"></p></div>
   <div class="card"><h3>Demo &amp; validation</h3><p class="muted small">Loads a project that reproduces the ASTM D6433-24 worked examples (Figs. 4–8) with the standard's deduct and corrected deduct values entered as manual values. Expected result: PCI 49 for both units.</p>
@@ -493,7 +496,8 @@ function narrative(p, D) {
 function vReport(p) {
   const D = projectData(p);
   const U = s => UNIT[s.system || 'US'];
-  return `<div class="row noprint"><button class="btn" data-act="print">Print / save PDF</button><button class="btn sec" data-act="zip">Export report package (.zip)</button><button class="btn sec" data-act="csv">Distress data (.csv)</button><button class="btn sec" data-act="tex">LaTeX report (.tex)</button></div>
+  return `<div class="row noprint"><button class="btn" data-act="print">Print / save PDF</button><button class="btn sec" data-act="zip">Export report package (.zip)</button><button class="btn sec" data-act="csv">Distress data (.csv)</button><button class="btn sec" data-act="tex">LaTeX report (.tex)</button><button class="btn sec" data-act="exportProject">Export project file (.pcis.json)</button></div>
+  <p class="muted small noprint">On iPhone/iPad, <b>Print / save PDF</b> creates a report file and opens the share sheet: choose Print, or save it to Files and print from there. The report package (.zip) and the project file can both be imported on another device (Home → Import project).</p>
   <div class="report"><h1>Pavement Condition Index Survey — ${esc(p.name || '')}</h1>
   <div class="kv"><b>Client</b><span>${esc(p.client || '')}</span><b>Project no.</b><span>${esc(p.number || '')}</span><b>Site</b><span>${esc(p.location || '')}</span><b>Survey date</b><span>${esc(p.date || '')}</span><b>Inspector(s)</b><span>${esc(p.inspectors || S.settings.inspector || '')}</span><b>Method</b><span>ASTM D6433-24 visual PCI survey</span></div>
   <h2>Summary</h2><p>${esc(narrative(p, D))}</p>
@@ -521,6 +525,153 @@ function download(name, data, mime) {
   const blob = data instanceof Blob ? data : new Blob([data], {type: mime || 'application/octet-stream'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+const isIOS = () => window.PCI_FORCE_IOS === true || /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.PCI_FORCE_IOS === true || navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+/* deliver a file: on iPhone/iPad use the share sheet (Mail, Files, AirDrop); elsewhere, or if sharing is refused, download it */
+async function deliver(name, data, mime) {
+  const blob = data instanceof Blob ? data : new Blob([data], {type: mime || 'application/octet-stream'});
+  if (isIOS() && navigator.canShare) {
+    try { const f = new File([blob], name, {type: blob.type || mime || 'application/octet-stream'}); if (navigator.canShare({files: [f]})) { await navigator.share({files: [f], title: name}); return 'shared'; } }
+    catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; }
+  }
+  download(name, blob); return 'downloaded';
+}
+const blobToDataURL = b => new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); });
+async function photosOf(projects) { const out = {}; for (const p of projects) for (const s of p.sections) for (const u of s.units) for (const ph of (u.photos || [])) { const b = await idb.get('photos', ph.id); if (b) out[ph.id] = await blobToDataURL(b); } return out; }
+
+/* Print / PDF. iOS ignores window.print() in a Home Screen app, so there the report is
+   written to a self-contained HTML file and handed to the share sheet; opened in Safari or
+   Files it prints (or saves as PDF) from the Share button. */
+async function printReport(p) {
+  if (!(isIOS() && isStandalone())) { window.print(); return; }
+  toast('Preparing report file…');
+  const node = document.querySelector('.report'); if (!node) return;
+  const clone = node.cloneNode(true);
+  for (const img of clone.querySelectorAll('img[data-photo]')) { const b = await idb.get('photos', img.dataset.photo); if (b) img.setAttribute('src', await blobToDataURL(b)); }
+  let css = ''; try { css = await (await fetch('./styles.css')).text(); } catch (e) {}
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(p.name || 'PCI report')}</title><style>${css}\nbody{background:#fff}main{max-width:900px;margin:0 auto;padding:16px}.printbar{position:sticky;top:0;background:#fff;padding:8px 0;border-bottom:1px solid #ddd;margin-bottom:12px}@media print{.printbar{display:none}}</style></head><body><main><div class="printbar"><button class="btn" onclick="window.print()">Print / Save as PDF</button> <span class="small muted">Or use Share \u2192 Print. To save a PDF from the print preview, pinch out on the page, then Share \u2192 Save to Files.</span></div>${clone.outerHTML}</main></body></html>`;
+  const r = await deliver(slug(p.name) + '_PCI_report.html', html, 'text/html');
+  if (r === 'downloaded') toast('Report saved. Open it, then Share → Print.');
+}
+
+/* Project file: one project with its photos (no curve library). Moves a project between devices. */
+async function exportProject(p) {
+  toast('Building project file…');
+  const j = {app: 'PCI Survey', kind: 'project', appVersion: APP_VERSION, exported: new Date().toISOString(), project: p, photos: await photosOf([p])};
+  await deliver(slug(p.name) + '_' + today() + (S.settings.inspector ? '_' + slug(S.settings.inspector) : '') + '.pcis.json', JSON.stringify(j), 'application/json');
+}
+/* read a ZIP (stored or deflated) into {name: Uint8Array} */
+async function unzip(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); let e = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('not a zip file');
+  const n = dv.getUint16(e + 10, true); let o = dv.getUint32(e + 16, true); const out = {}; const dec = new TextDecoder();
+  for (let k = 0; k < n; k++) {
+    if (dv.getUint32(o, true) !== 0x02014b50) throw new Error('damaged zip directory');
+    const method = dv.getUint16(o + 10, true), csz = dv.getUint32(o + 20, true), nl = dv.getUint16(o + 28, true), xl = dv.getUint16(o + 30, true), cl = dv.getUint16(o + 32, true), lo = dv.getUint32(o + 42, true);
+    const name = dec.decode(u8.subarray(o + 46, o + 46 + nl)); o += 46 + nl + xl + cl;
+    const start = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true); const raw = u8.subarray(start, start + csz);
+    if (name.endsWith('/')) continue;
+    if (method === 0) out[name] = raw;
+    else if (method === 8 && 'DecompressionStream' in window) out[name] = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else throw new Error('unsupported compression in ' + name);
+  }
+  return out;
+}
+function cloneWithNewIds(p) {
+  const q = JSON.parse(JSON.stringify(p)); q.id = uid(); q.name = (q.name || 'Project') + ' (imported copy)';
+  q.sections.forEach(s => { s.id = uid(); s.units.forEach(u => { u.id = uid(); }); });
+  return q;
+}
+/* small promise-based dialog: buttons = [[value, label, extraClass]] */
+function choose(title, html, buttons) {
+  return new Promise(res => {
+    closeModal(); const bg = document.createElement('div'); bg.className = 'modal-bg'; bg.id = 'modal';
+    bg.innerHTML = `<div class="modal"><h3>${esc(title)}</h3>${html}<div class="row" style="margin-top:12px">${buttons.map(([v, l, c]) => `<button class="btn ${c}" data-choice="${v}">${esc(l)}</button>`).join('')}</div></div>`;
+    bg.addEventListener('click', ev => { const b = ev.target.closest('[data-choice]'); if (b) { ev.stopPropagation(); bg.remove(); res(b.dataset.choice); } });
+    document.body.appendChild(bg);
+  });
+}
+const unitHasData = u => !!(u.done || (u.entries || []).length || Object.keys(u.slabMarks || {}).length || (u.photos || []).length || (u.repairs || []).length || (u.jointSeal && u.jointSeal !== 'none') || Object.values(u.supp || {}).some(Boolean) || u.gps || (u.notes || '').trim());
+const unitSig = u => JSON.stringify(Object.assign({}, u, {updated: 0, photos: (u.photos || []).map(x => x.id).sort()}));
+/* Merge an imported copy of a project into the local one.
+   Sections match by ID, then by branch + name + type. Units match by ID, then by unit number + kind.
+   A unit on only one side is kept. Where both sides have the unit: if only one has data, that one is kept;
+   if both have different data, the more recently changed one is kept and the merge reports it as a conflict.
+   Photos from both copies are always kept. */
+function mergeProject(local, inc, photoBlobs) {
+  const sum = {added: [], updated: [], kept: [], conflicts: [], sections: [], same: 0};
+  const lab = (s, u) => `${s.branch ? s.branch + ' ' : ''}${s.name} unit ${u.no}${u.kind === 'A' ? ' (A)' : ''}`;
+  ['client', 'location', 'number', 'inspectors', 'notes'].forEach(f => { if (!local[f] && inc[f]) local[f] = inc[f]; });
+  const ins = new Set(String(local.inspectors || '').split(/\s*[,;&]\s*/).filter(Boolean));
+  inc.sections.forEach(si => {
+    let sl = local.sections.find(x => x.id === si.id) || local.sections.find(x => (x.branch || '') === (si.branch || '') && x.name === si.name && x.type === si.type);
+    if (!sl) { local.sections.push(si); sum.sections.push(`${si.branch ? si.branch + ' ' : ''}${si.name}`); si.units.forEach(u => { if (u.inspector && unitHasData(u)) ins.add(u.inspector); }); return; }
+    ['area', 'N', 'unitSize', 'slabLen', 'slabWid', 'use', 'notes'].forEach(f => { if ((sl[f] === '' || sl[f] == null) && si[f] !== '' && si[f] != null) sl[f] = si[f]; });
+    si.units.forEach(ui => {
+      if (ui.inspector && unitHasData(ui)) ins.add(ui.inspector);
+      const ul = sl.units.find(x => x.id === ui.id) || sl.units.find(x => String(x.no) === String(ui.no) && (x.kind || 'R') === (ui.kind || 'R'));
+      if (!ul) { sl.units.push(ui); sum.added.push(lab(sl, ui)); return; }
+      if (unitSig(ul) === unitSig(ui)) { sum.same++; return; }
+      const dl = unitHasData(ul), di = unitHasData(ui);
+      const phUnion = () => { const ids = new Set((ul.photos || []).map(x => x.id)); return (ul.photos || []).concat((ui.photos || []).filter(x => !ids.has(x.id))); };
+      const take = () => { const keepId = ul.id, ph = phUnion(); Object.keys(ul).forEach(k => delete ul[k]); Object.assign(ul, JSON.parse(JSON.stringify(ui)), {id: keepId, photos: ph}); };
+      if (!di) { const n = (ui.photos || []).length; if (n) ul.photos = phUnion(); sum.kept.push(lab(sl, ul)); return; }
+      if (!dl) { take(); sum.updated.push(lab(sl, ul)); return; }
+      const tl = ul.updated || 0, ti = ui.updated || 0;
+      if (ti > tl) { take(); sum.conflicts.push(`${lab(sl, ul)}: surveyed on both devices; kept the imported copy (changed later)`); sum.updated.push(lab(sl, ul)); }
+      else { ul.photos = phUnion(); sum.conflicts.push(`${lab(sl, ul)}: surveyed on both devices; kept this device's copy (${tl ? 'changed later' : 'no change times in file'})`); }
+    });
+  });
+  if (ins.size) local.inspectors = [...ins].join(', ');
+  return sum;
+}
+function mergeReport(s) {
+  const li = (h, a) => a.length ? `<p><b>${h} (${a.length})</b></p><ul class="small">${a.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+  return `${li('Units added', s.added)}${li('Units updated from the imported file', s.updated.filter(x => !s.conflicts.some(c => c.startsWith(x + ':'))))}${li('Sections added', s.sections)}${s.conflicts.length ? `<div class="note">${li('Check these units: both devices had survey data', s.conflicts)}<p class="small">Open each one and confirm the entries. The other copy is still in the imported file if you need it.</p></div>` : ''}<p class="small muted">${s.same} unit(s) were identical on both devices.</p>`;
+}
+/* Import a project from: a project file (.pcis.json), a report package (.zip, from any version), or a full backup (.json) */
+async function importAny(file) {
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  let project = null, photoBlobs = {};
+  if (u8[0] === 0x50 && u8[1] === 0x4B) {
+    const files = await unzip(u8);
+    const pj = Object.keys(files).find(k => /(^|\/)project\.json$/.test(k)); if (!pj) throw new Error('this zip has no project.json');
+    project = JSON.parse(new TextDecoder().decode(files[pj])); const base = pj.slice(0, pj.length - 'project.json'.length);
+    project.sections.forEach(s => s.units.forEach(u => (u.photos || []).forEach((ph, k) => { const f = files[base + 'photos/' + photoName(s, u, ph, k)]; if (f) photoBlobs[ph.id] = new Blob([f], {type: 'image/jpeg'}); })));
+  } else {
+    const j = JSON.parse(new TextDecoder().decode(u8));
+    if (j.kind === 'project' && j.project) { project = j.project; for (const id in (j.photos || {})) photoBlobs[id] = await (await fetch(j.photos[id])).blob(); }
+    else if ((j.state || j).projects) { await restore(file); return; }
+    else throw new Error('not a PCI Survey project, package or backup');
+  }
+  if (!project || !Array.isArray(project.sections)) throw new Error('project data missing');
+  let k = S.projects.findIndex(x => x.id === project.id);
+  if (k < 0) k = S.projects.findIndex(x => x.name && x.name === project.name && (x.number || '') === (project.number || ''));
+  if (k >= 0) {
+    const here = S.projects[k], when = t => t ? new Date(t).toLocaleString() : 'unknown';
+    const pick = await choose('This project is already on this device', `<p><b>${esc(here.name)}</b></p>
+      <table class="small"><tr><td>On this device</td><td>last changed ${esc(when(here.updated))}</td></tr><tr><td>Imported file</td><td>last changed ${esc(when(project.updated))}</td></tr></table>
+      <p class="small"><b>Merge</b> adds the imported units and photos to this project and keeps your own work. Use it to combine units surveyed on different devices or by different inspectors.<br><b>Replace</b> discards this device's copy and uses the imported one.<br><b>Keep both</b> imports a separate copy.</p>`,
+      [['merge', 'Merge (recommended)', ''], ['replace', 'Replace', 'sec'], ['copy', 'Keep both', 'sec'], ['cancel', 'Cancel', 'sec']]);
+    if (pick === 'cancel' || !pick) return;
+    if (pick === 'merge') {
+      const sum = mergeProject(here, project, photoBlobs);
+      for (const id in photoBlobs) if (photoBlobs[id]) await idb.put('photos', id, photoBlobs[id]);
+      here.updated = Date.now(); save(true); go(`#/p/${here.id}`); render();
+      await choose('Merge complete', mergeReport(sum), [['ok', 'OK', '']]);
+      return;
+    }
+    if (pick === 'replace') { S.projects[k] = project; }
+    else {
+      const q = cloneWithNewIds(project); const map = {};
+      q.sections.forEach(s => s.units.forEach(u => (u.photos || []).forEach(ph => { const nid = uid(); map[nid] = photoBlobs[ph.id]; ph.id = nid; })));
+      photoBlobs = map; project = q; S.projects.push(project);
+    }
+  } else S.projects.push(project);
+  for (const id in photoBlobs) if (photoBlobs[id]) await idb.put('photos', id, photoBlobs[id]);
+  save(true); toast('Project imported'); go(`#/p/${project.id}`); render();
 }
 const slug = s => String(s || 'project').replace(/[^\w\-]+/g, '_').slice(0, 40);
 function csvFor(p) {
@@ -590,15 +741,12 @@ async function zipPackage(p) {
   for (const s of p.sections) for (const u of s.units) for (let k = 0; k < (u.photos || []).length; k++) {
     const ph = u.photos[k]; const b = await idb.get('photos', ph.id); if (b) files.push({name: 'photos/' + photoName(s, u, ph, k), data: await blobToU8(b)});
   }
-  files.push({name: 'README.txt', data: enc.encode('PCI Survey report package\r\nreport.tex  - compile with pdflatex (photos/ folder alongside)\r\ndistress_data.csv - one row per distress/severity per unit\r\nproject.json - raw project data (re-importable via Settings > Restore after wrapping)\r\n')});
-  download(slug(p.name) + '_PCI_report.zip', zip(files));
+  files.push({name: 'README.txt', data: enc.encode('PCI Survey report package\r\nreport.tex  - compile with pdflatex (photos/ folder alongside)\r\ndistress_data.csv - one row per distress/severity per unit\r\nproject.json - project data. To open this project on another device, import this whole .zip in PCI Survey: Home > Import project\r\n')});
+  await deliver(slug(p.name) + '_PCI_report.zip', zip(files), 'application/zip');
 }
 async function fullBackup() {
-  const photos = {};
-  for (const p of S.projects) for (const s of p.sections) for (const u of s.units) for (const ph of (u.photos || [])) {
-    const b = await idb.get('photos', ph.id); if (b) photos[ph.id] = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); });
-  }
-  download(`PCI_backup_${today()}.json`, JSON.stringify({app: 'PCI Survey', appVersion: APP_VERSION, exported: new Date().toISOString(), state: S, photos}), 'application/json');
+  const photos = await photosOf(S.projects);
+  await deliver(`PCI_backup_${today()}.json`, JSON.stringify({app: 'PCI Survey', appVersion: APP_VERSION, exported: new Date().toISOString(), state: S, photos}), 'application/json');
 }
 async function restore(file) {
   const j = JSON.parse(await file.text());
@@ -635,7 +783,7 @@ async function hydratePhotos() {
 }
 
 /* ============================ model mutations ============================ */
-function touch() { const c = ctx(); if (c.p) c.p.updated = Date.now(); save(); }
+function touch() { const c = ctx(), now = Date.now(); if (c.p) c.p.updated = now; if (c.s) c.s.updated = now; if (c.u) c.u.updated = now; save(); }
 function evalExpr(str) {
   const s = String(str || '').replace(/[x×]/gi, '*').replace(/,/g, '.').replace(/\s+/g, '');
   if (!s) return null; if (!/^[\d.+\-*/()]+$/.test(s)) return NaN;
@@ -665,6 +813,7 @@ document.addEventListener('change', async e => {
   else if (a === 'phCap' || a === 'phCode' || a === 'phSev') { const ph = c.u.photos.find(x => x.id === el.dataset.id); ph[{phCap: 'caption', phCode: 'code', phSev: 'sev'}[a]] = el.value; touch(); }
   else if (a === 'supp') { c.u.supp = c.u.supp || {}; c.u.supp[el.dataset.k] = el.checked; touch(); }
   else if (a === 'importLib') { try { const j = JSON.parse(await el.files[0].text()); if (!j.AC && !j.PCC) throw new Error('missing AC/PCC sets'); S.curveLib = j; save(true); toast('Curve library loaded'); render(); } catch (err) { alert('Could not read library: ' + err.message); } }
+  else if (a === 'importAny') { try { await importAny(el.files[0]); } catch (err) { alert('Import failed: ' + err.message); } el.value = ''; }
   else if (a === 'restore') { try { await restore(el.files[0]); } catch (err) { alert('Restore failed: ' + err.message); } }
   else if (a === 'cvSet') { UI.curveSel.set = el.value; render(); }
   else if (a === 'cvCode') { UI.curveSel.code = Number(el.value); render(); }
@@ -692,8 +841,9 @@ document.addEventListener('click', async e => {
       touch(); toast(`${list.length} unit(s) planned`); render(); break; }
     case 'addUnit': { const no = prompt('Sample unit number / ID:', String((c.s.units.length ? Math.max(...c.s.units.map(u => Number(u.no) || 0)) : 0) + 1)); if (no) { const u = newUnit(c.s, no, el.dataset.kind); c.s.units.push(u); touch(); go(`#/u/${c.p.id}/${c.s.id}/${u.id}`); } break; }
     case 'delUnit': if (confirm('Delete this sample unit?')) { for (const ph of (c.u.photos || [])) await idb.del('photos', ph.id); c.s.units = c.s.units.filter(x => x !== c.u); touch(); go(`#/s/${c.p.id}/${c.s.id}`); } break;
+    case 'key': { const inp = document.getElementById(el.dataset.target); if (inp) { inp.value += el.dataset.k === '×' ? '*' : el.dataset.k; inp.focus(); } break; }
     case 'tab': UI.tab = el.dataset.tab; render(); break;
-    case 'toggleDone': c.u.done = !c.u.done; touch(); render(); toast(c.u.done ? 'Unit marked surveyed' : 'Unit excluded from section PCI'); break;
+    case 'toggleDone': c.u.done = !c.u.done; if (c.u.done && S.settings.inspector) c.u.inspector = S.settings.inspector; touch(); render(); toast(c.u.done ? 'Unit marked surveyed' : 'Unit excluded from section PCI'); break;
     case 'pickAC': UI.acCode = Number(el.dataset.code); UI.acSev = dist('AC', UI.acCode).sev.length === 1 ? dist('AC', UI.acCode).sev[0] : null; render(); setTimeout(() => $('#acQty') && $('#acQty').focus(), 50); break;
     case 'acSev': UI.acSev = el.dataset.sev; document.querySelectorAll('[data-act="acSev"]').forEach(b => b.classList.toggle('on', b === el)); $('#acQty') && $('#acQty').focus(); break;
     case 'addAC': {
@@ -731,9 +881,10 @@ document.addEventListener('click', async e => {
     case 'demo': loadDemo(); break;
     case 'wipe': if (confirm('Delete ALL projects, photos and the curve library on this device?') && confirm('Really delete everything? This cannot be undone.')) { S = blankState(); await idb.clear('photos'); save(true); go('#/'); render(); } break;
     case 'install': if (window.__deferredPrompt) { window.__deferredPrompt.prompt(); window.__deferredPrompt = null; } break;
-    case 'print': window.print(); break;
-    case 'csv': download(slug(c.p.name) + '_distress.csv', csvFor(c.p), 'text/csv'); break;
-    case 'tex': download(slug(c.p.name) + '_report.tex', texFor(c.p, false), 'application/x-tex'); break;
+    case 'print': await printReport(c.p); break;
+    case 'exportProject': await exportProject(c.p); break;
+    case 'csv': await deliver(slug(c.p.name) + '_distress.csv', csvFor(c.p), 'text/csv'); break;
+    case 'tex': await deliver(slug(c.p.name) + '_report.tex', texFor(c.p, false), 'application/x-tex'); break;
     case 'zip': toast('Building package…'); await zipPackage(c.p); break;
   }
 });
