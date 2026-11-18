@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1F3A5F">
+<meta name="description" content="Field app for ASTM D6433 Pavement Condition Index surveys of asphalt (AC) and jointed concrete (PCC) pavements.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PCI Survey">
+<title>PCI Survey — ASTM D6433</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><span class="brand">PCI Survey</span>
+<nav><a href="#/">Projects</a><a href="#/curves">Curves</a><a href="#/settings">Settings</a><a href="#/help">Help</a></nav></header>
+<div class="crumbs" id="crumbs"></div>
+<main id="main"><p class="muted">Loading…</p></main>
+<noscript>This app needs JavaScript.</noscript>
+<script src="catalog.js"></script>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+<script>
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__deferredPrompt = e; const b = document.getElementById('installBtn'); if (b) b.disabled = false; });
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+loadState().then(render);
+</script>
+</body>
+</html>
