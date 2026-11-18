@@ -1,6 +1,6 @@
 /* PCI Survey — ASTM D6433 field app. Vanilla JS, offline-first (IndexedDB + service worker). */
 'use strict';
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -108,7 +108,7 @@ function vHome() {
   const lib = libStatus();
   return `<h1>Projects</h1>
   <div class="row"><button class="btn" data-act="newProject">+ New project</button>
-  <label class="btn sec" style="margin:0">Import project<input type="file" accept=".json,.zip,application/json,application/zip" data-act-change="importAny" style="display:none"></label>
+  <label class="btn sec" style="margin:0">Import project<input type="file" accept=".json,.zip,.html,.htm,application/json,application/zip,text/html" data-act-change="importAny" style="display:none"></label>
   <a class="btn sec" href="#/curves">Deduct curves ${lib.badge}</a><a class="btn sec" href="#/settings">Settings &amp; backup</a><a class="btn sec" href="#/help">Help</a></div>
   ${!S.curveLib ? `<div class="note">No deduct-curve library is loaded. The app still records everything and calculates densities, <i>m</i>, TDV, <i>q</i> and PCI, but you must type in deduct values (DV) and corrected deduct values (CDV) read from the licensed standard. Load or build a library under <b>Deduct curves</b> to automate this.</div>` : ''}
   <div class="list">${ps.length ? ps.map(p => {
@@ -497,7 +497,7 @@ function vReport(p) {
   const D = projectData(p);
   const U = s => UNIT[s.system || 'US'];
   return `<div class="row noprint"><button class="btn" data-act="print">Print / save PDF</button><button class="btn sec" data-act="zip">Export report package (.zip)</button><button class="btn sec" data-act="csv">Distress data (.csv)</button><button class="btn sec" data-act="tex">LaTeX report (.tex)</button><button class="btn sec" data-act="exportProject">Export project file (.pcis.json)</button></div>
-  <p class="muted small noprint">On iPhone/iPad, <b>Print / save PDF</b> creates a report file and opens the share sheet: choose Print, or save it to Files and print from there. The report package (.zip) and the project file can both be imported on another device (Home → Import project).</p>
+  <p class="muted small noprint">On iPhone/iPad, <b>Print / save PDF</b> creates a report file and opens the share sheet: choose Print, or save it to Files and print from there. The report file, the report package (.zip) and the project file can all be imported on another device (Home → Import project).</p>
   <div class="report"><h1>Pavement Condition Index Survey — ${esc(p.name || '')}</h1>
   <div class="kv"><b>Client</b><span>${esc(p.client || '')}</span><b>Project no.</b><span>${esc(p.number || '')}</span><b>Site</b><span>${esc(p.location || '')}</span><b>Survey date</b><span>${esc(p.date || '')}</span><b>Inspector(s)</b><span>${esc(p.inspectors || S.settings.inspector || '')}</span><b>Method</b><span>ASTM D6433-24 visual PCI survey</span></div>
   <h2>Summary</h2><p>${esc(narrative(p, D))}</p>
@@ -550,7 +550,7 @@ async function printReport(p) {
   const clone = node.cloneNode(true);
   for (const img of clone.querySelectorAll('img[data-photo]')) { const b = await idb.get('photos', img.dataset.photo); if (b) img.setAttribute('src', await blobToDataURL(b)); }
   let css = ''; try { css = await (await fetch('./styles.css')).text(); } catch (e) {}
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(p.name || 'PCI report')}</title><style>${css}\nbody{background:#fff}main{max-width:900px;margin:0 auto;padding:16px}.printbar{position:sticky;top:0;background:#fff;padding:8px 0;border-bottom:1px solid #ddd;margin-bottom:12px}@media print{.printbar{display:none}}</style></head><body><main><div class="printbar"><button class="btn" onclick="window.print()">Print / Save as PDF</button> <span class="small muted">Or use Share \u2192 Print. To save a PDF from the print preview, pinch out on the page, then Share \u2192 Save to Files.</span></div>${clone.outerHTML}</main></body></html>`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(p.name || 'PCI report')}</title><style>${css}\nbody{background:#fff}main{max-width:900px;margin:0 auto;padding:16px}.printbar{position:sticky;top:0;background:#fff;padding:8px 0;border-bottom:1px solid #ddd;margin-bottom:12px}@media print{.printbar{display:none}}</style></head><body><main><div class="printbar"><button class="btn" onclick="window.print()">Print / Save as PDF</button> <span class="small muted">Or use Share \u2192 Print. To save a PDF from the print preview, pinch out on the page, then Share \u2192 Save to Files.</span></div>${clone.outerHTML}</main><script type="application/json" id="pci-survey-project">${JSON.stringify({app: 'PCI Survey', kind: 'project', appVersion: APP_VERSION, exported: new Date().toISOString(), project: p}).replace(/</g, '\\u003c')}</script></body></html>`;
   const r = await deliver(slug(p.name) + '_PCI_report.html', html, 'text/html');
   if (r === 'downloaded') toast('Report saved. Open it, then Share → Print.');
 }
@@ -640,6 +640,12 @@ async function importAny(file) {
     const pj = Object.keys(files).find(k => /(^|\/)project\.json$/.test(k)); if (!pj) throw new Error('this zip has no project.json');
     project = JSON.parse(new TextDecoder().decode(files[pj])); const base = pj.slice(0, pj.length - 'project.json'.length);
     project.sections.forEach(s => s.units.forEach(u => (u.photos || []).forEach((ph, k) => { const f = files[base + 'photos/' + photoName(s, u, ph, k)]; if (f) photoBlobs[ph.id] = new Blob([f], {type: 'image/jpeg'}); })));
+  } else if (/^\s*</.test(new TextDecoder().decode(u8.subarray(0, 64)))) {
+    const doc = new DOMParser().parseFromString(new TextDecoder().decode(u8), 'text/html');
+    const el = doc.getElementById('pci-survey-project');
+    if (!el) throw new Error('this report file does not contain project data (it was made before version 1.3.1). On the original device use Export project file instead');
+    project = JSON.parse(el.textContent).project;
+    for (const img of doc.querySelectorAll('img[data-photo]')) { const src = img.getAttribute('src') || ''; if (src.startsWith('data:')) photoBlobs[img.dataset.photo] = await (await fetch(src)).blob(); }
   } else {
     const j = JSON.parse(new TextDecoder().decode(u8));
     if (j.kind === 'project' && j.project) { project = j.project; for (const id in (j.photos || {})) photoBlobs[id] = await (await fetch(j.photos[id])).blob(); }

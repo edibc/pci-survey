@@ -1,5 +1,5 @@
 /* PCI Survey service worker — cache-first app shell for offline field use. Bump VERSION on every release. */
-const VERSION = 'pci-survey-v1.3.0';
+const VERSION = 'pci-survey-v1.3.1';
 const SHELL = ['./', './index.html', './styles.css', './catalog.js', './calc.js', './app.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
