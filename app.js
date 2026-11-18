@@ -1,6 +1,6 @@
 /* PCI Survey — ASTM D6433 field app. Vanilla JS, offline-first (IndexedDB + service worker). */
 'use strict';
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.2';
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -660,15 +660,19 @@ async function readProjectRecord(u8) {
   let template = ''; if (sheetPath['Start Here'] && files[sheetPath['Start Here']]) { const sc = readSheetCells(files[sheetPath['Start Here']], shared); for (const r of [1, 2, 3, 4, 5]) { const x = sc['B' + r]; if (x && /Template/i.test(String(x.v || ''))) template = String(x.v); } }
   return {tokens, meta, template};
 }
+const recVer = v => v ? 'v' + String(v).trim().replace(/^v/i, '') : '';
+const recWhen = v => { if (!v) return ''; const d = new Date(v); return isNaN(d) ? String(v) : d.toLocaleString([], {year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}); };
 const tok = (p, name) => { const x = p && p.record && p.record.tokens[name]; return x && x.v != null && x.v !== '' && x.v !== 'Not yet assigned' ? String(x.v) : ''; };
 /* header fields of the PCI project that come from the Project Record (the Records app is the master) */
 function recordHeader(r) {
   const T = name => { const x = r.tokens[name]; return x && x.v != null && x.v !== 'Not yet assigned' ? String(x.v) : ''; };
   return {
-    name: T('Project.ShortTitle') || [T('Site.BuildingName'), T('Project.Title')].filter(Boolean).join(' – '),
+    // Project name: the short title if given; otherwise the title, prefixed with the building name only when the
+    // building has a name of its own (not just its street address, as when a building has no formal name)
+    name: T('Project.ShortTitle') || (!T('Site.BuildingName') || T('Site.BuildingName').toLowerCase() === T('Site.Street').toLowerCase() || T('Project.Title').toLowerCase().includes(T('Site.BuildingName').toLowerCase()) ? T('Project.Title') : [T('Site.BuildingName'), T('Project.Title')].filter(Boolean).join(' – ')),
     number: T('Project.Number') || T('Proposal.Number'),
     client: T('Client.Name'),
-    location: [T('Site.BuildingName'), T('Site.Street'), T('Site.CityStateZip')].filter(Boolean).join(', ')
+    location: [T('Site.BuildingName') && T('Site.BuildingName').toLowerCase() !== T('Site.Street').toLowerCase() ? T('Site.BuildingName') : '', T('Site.Street'), T('Site.CityStateZip')].filter(Boolean).join(', ')
   };
 }
 async function loadProjectRecord(file, target) {
@@ -691,10 +695,10 @@ async function loadProjectRecord(file, target) {
   delete p.draft;
   const before = p.record; p.record = rec; p.updated = Date.now(); save(true); go(`#/p/${p.id}`); render();
   const env = String(rec.meta.Environment || '').toUpperCase();
-  const ver = rec.meta.Version ? 'v' + rec.meta.Version : '(no version: not exported by Project Records)';
+  const ver = rec.meta.Version ? recVer(rec.meta.Version) : '(no version: not exported by Project Records)';
   await choose(isNew ? 'Project created from the Project Record' : 'Project Record refreshed', `${env === 'STAGING' ? '<div class="note" style="border-color:#9b2c2c;color:#9b2c2c"><b>TEST — STAGING SITE.</b> This file came from the staging Records app. Use it for testing only.</div>' : ''}
-    <p class="small">${esc(rec.fileName)}<br>Project Record ${esc(ver)}${rec.meta['Exported at'] ? ', exported ' + esc(rec.meta['Exported at']) : ''}${rec.meta['Exported by'] ? ' by ' + esc(rec.meta['Exported by']) : ''}</p>
-    <p class="small">${Object.keys(rec.tokens).length} tokens loaded${before ? ` (previously ${before.meta && before.meta.Version ? 'v' + esc(before.meta.Version) : 'an earlier file'})` : ''}.</p>
+    <p class="small">${esc(rec.fileName)}<br>Project Record ${esc(ver)}${rec.meta['Exported at'] ? ', exported ' + esc(recWhen(rec.meta['Exported at'])) : ''}${rec.meta['Exported by'] ? ' by ' + esc(rec.meta['Exported by']) : ''}</p>
+    <p class="small">${Object.keys(rec.tokens).length} tokens loaded${before ? ` (previously ${before.meta && before.meta.Version ? esc(recVer(before.meta.Version)) : 'an earlier file'})` : ''}.</p>
     ${changes.length ? `<p><b>Header fields updated</b></p><ul class="small">${changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
     <p class="small muted">The Records app is the master. Correct project data there, export a new version, and refresh here.</p>`, [['ok', 'OK', '']]);
 }
@@ -716,9 +720,9 @@ function recordCard(p) {
   const all = Object.entries(r.tokens).sort((a, b) => a[1].row - b[1].row);
   let lastSec = null;
   const allRows = all.map(([k, x]) => { const head = x.section !== lastSec ? `<tr><th colspan="3">${esc(x.section)}</th></tr>` : ''; lastSec = x.section; return head + `<tr><td class="small">${esc(x.label)}<div class="muted">[${esc(k)}]</div></td><td>${esc(x.v == null ? '' : x.v)}</td><td class="small">${esc(x.s || '')}</td></tr>`; }).join('');
-  return `<div class="card"><h3>EDI Project Record ${r.meta.Version ? 'v' + esc(r.meta.Version) : ''}</h3>
+  return `<div class="card"><h3>EDI Project Record ${esc(recVer(r.meta.Version))}</h3>
    ${env === 'STAGING' ? '<div class="note" style="border-color:#9b2c2c;color:#9b2c2c"><b>TEST — STAGING SITE.</b> Test data only.</div>' : ''}
-   <p class="small muted">${esc(r.fileName || '')}${r.meta['Exported at'] ? ' · exported ' + esc(r.meta['Exported at']) : ''} · loaded ${esc(new Date(r.loadedAt).toLocaleString())}. Correct data in the Records app, then refresh.</p>
+   <p class="small muted">${esc(r.fileName || '')}${r.meta['Exported at'] ? ' · exported ' + esc(recWhen(r.meta['Exported at'])) : ''} · loaded ${esc(new Date(r.loadedAt).toLocaleString())}. Correct data in the Records app, then refresh.</p>
    ${groups}
    ${folder ? `<div class="note small">Save this survey's project files and report packages in <b>${esc(folder)}\\PCI Survey</b>.</div>` : ''}
    <details style="margin-top:8px"><summary class="small">All ${all.length} tokens</summary><div class="tw"><table><tr><th>Field / token</th><th>Value</th><th>Status</th></tr>${allRows}</table></div></details>
@@ -890,7 +894,7 @@ async function zipPackage(p) {
     const rows = Object.entries(p.record.tokens).sort((a, b) => a[1].row - b[1].row);
     const q = v => { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     files.push({name: 'project_record_tokens.csv', data: enc.encode([['token', 'field', 'value', 'status', 'section'].join(',')].concat(rows.map(([k, x]) => [k, x.label, x.v, x.s, x.section].map(q).join(','))).join('\r\n'))});
-    files.push({name: 'project_record_tokens.tex', data: enc.encode('% EDI Project Record tokens' + (p.record.meta.Version ? ' (v' + p.record.meta.Version + ')' : '') + '. Use \\PR{Project.Number} etc.\n\\providecommand{\\PR}[1]{\\csname PR@#1\\endcsname}\n' + rows.map(([k, x]) => `\\expandafter\\def\\csname PR@${k}\\endcsname{${tx(x.v == null ? '' : x.v)}}`).join('\n') + '\n')});
+    files.push({name: 'project_record_tokens.tex', data: enc.encode('% EDI Project Record tokens' + (p.record.meta.Version ? ' (' + recVer(p.record.meta.Version) + ')' : '') + '. Use \\PR{Project.Number} etc.\n\\providecommand{\\PR}[1]{\\csname PR@#1\\endcsname}\n' + rows.map(([k, x]) => `\\expandafter\\def\\csname PR@${k}\\endcsname{${tx(x.v == null ? '' : x.v)}}`).join('\n') + '\n')});
   }
   for (const s of p.sections) for (const u of s.units) for (let k = 0; k < (u.photos || []).length; k++) {
     const ph = u.photos[k]; const b = await idb.get('photos', ph.id); if (b) files.push({name: 'photos/' + photoName(s, u, ph, k), data: await blobToU8(b)});
